@@ -283,10 +283,10 @@ def model_match(cls, data):
     if fp == cls._IDENT:
         return True
     else:
-        LOG.debug("Unknowd Feidaxing radio, ID:")
-        LOG.debug(util.hexprint(fp))
-        print("Unknowd Feidaxing radio, ID:")
-        print util.hexprint(fp)
+        # LOG.debug("Unknown Feidaxing radio, ID:")
+        # LOG.debug(util.hexprint(fp))
+        # print("Unknown Feidaxing radio, ID:")
+        # print(util.hexprint(fp))
 
         return False
 
