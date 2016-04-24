@@ -99,7 +99,9 @@ MEM_SIZE = 0x400
 BLOCK_SIZE = 8
 MEM_BLOCKS = range(0, (MEM_SIZE / BLOCK_SIZE))
 ACK_CMD = "\x06"
-TIMEOUT = 0.05  # from 0.03 up it' s safe, we set in 0.05 for a margin
+# from 0.03 up it' s safe
+# I have to turn it up, some users reported problems with this, was 0.05
+TIMEOUT = 0.1
 
 POWER_LEVELS = [chirp_common.PowerLevel("Low", watts=1),
                 chirp_common.PowerLevel("High", watts=5)]
@@ -187,36 +189,65 @@ def open_radio(radio):
     # Set serial discipline
     try:
         radio.pipe.setParity("N")
-        radio.pipe.timeout = TIMEOUT
+        radio.pipe.setTimeout(TIMEOUT)
         radio.pipe.flushOutput()
         radio.pipe.flushInput()
+        LOG.debug("Serial port open successful")
     except:
         msg = "Serial error: Can't set serial line discipline"
         raise errors.RadioError(msg)
 
     magic = "PROGRAM"
-    for i in range(0, len(magic)):
-        ack = rawrecv(radio, 1)
-        time.sleep(0.05)
-        send(radio, magic[i])
+    LOG.debug("Sending MAGIC")
+    exito = False
 
-    handshake(radio, "Radio not entering Program mode")
+    # it appears that some buggy interfaces/serial devices keep sending
+    # data in the RX line, we will try to catch this garbage here
+    devnull = rawrecv(radio, 256)
+
+    for i in range(0, 5):
+        LOG.debug("Try %i" % i)
+        for i in range(0, len(magic)):
+            ack = rawrecv(radio, 1)
+            time.sleep(0.05)
+            send(radio, magic[i])
+
+        try:
+            handshake(radio, "Radio not entering Program mode")
+            LOG.debug("Radio opened for programming")
+            exito = True
+            break
+        except:
+            LOG.debug("No go, next try")
+            pass
+
+    # validate the success
+    if exito is False:
+        msg = "Radio refuse to enter into program mode after a few tries"
+        raise errors.RadioError(msg)
+
     rawsend(radio, "\x02")
     ident = rawrecv(radio, 8)
+
+    # validate the input
+    if  len(ident) != 8:
+        LOG.debug("Wrong ID, get only %s bytes, we expect 8" % len(ident))
+        LOG.debug(hexprint(ident))
+        msg = "Bad ID received, just %s bytes, we want 8" % len(ident)
+        raise errors.RadioError(msg)
+
     handshake(radio, "Comm error after ident", True)
+    LOG.debug("Correct get ident and hanshake")
 
     if not (radio.TYPE in ident):
-        LOG.debug("Incorrect model ID, got %s" % util.hexprint(ident))
+        LOG.debug("Incorrect model ID:")
+        LOG.debug(util.hexprint(ident))
         msg = "Incorrect model ID, got %s, it not contains %s" % \
             (ident[0:5], radio.TYPE)
         raise errors.RadioError(msg)
 
-    # DEBUG
-    #print("Full ident string is %s" % util.hexprint(ident))
-
-    # this is needed, I don't know why, yet
-    send(radio, make_frame("W", 0x03e1, "\xff\x01" + "\xff" * 6))
-    handshake(radio, "Comm error  after setup", True)
+    LOG.debug("Full ident string is:")
+    LOG.debug(util.hexprint(ident))
 
 
 def do_download(radio):
@@ -231,12 +262,12 @@ def do_download(radio):
     radio.status_fn(status)
 
     data = ""
+    LOG.debug("Starting the downolad")
     for addr in MEM_BLOCKS:
         send(radio, make_frame("R", addr * BLOCK_SIZE))
         data += recv(radio)
         handshake(radio, "Rx error in block %03i" % addr, True)
-        # DEBUG
-        #print("Block: %04x, Pos: %06x" % (addr, addr * BLOCK_SIZE))
+        LOG.debug("Block: %04x, Pos: %06x" % (addr, addr * BLOCK_SIZE))
 
         # UI Update
         status.cur = addr
@@ -264,19 +295,17 @@ def do_upload(radio):
         status.msg = "Cloning to radio..."
         radio.status_fn(status)
 
-        block = addr * BLOCK_SIZE
-        if block > 0x0378:
+        pos = addr * BLOCK_SIZE
+        if pos > 0x0378:
             # it seems that from this point forward is read only !?!?!?
             continue
 
-        send(radio, make_frame("W", block,
-                               radio.get_mmap()[block:block + BLOCK_SIZE]))
-
-        # DEBUG
-        #print("Block: %04x, Pos: %04x" % (addr, addr * BLOCK_SIZE))
+        data = radio.get_mmap()[pos:pos + BLOCK_SIZE]
+        send(radio, make_frame("W", pos, data))
+        LOG.debug("Block: %04x, Pos: %06x" % (addr, pos))
 
         time.sleep(0.1)
-        handshake(radio, "Rx error in block %03i" % addr)
+        handshake(radio, "Rx error in block %04x" % addr)
 
 
 def get_rid(data):
@@ -308,7 +337,7 @@ def model_match(cls, data):
 class Kenwood_M60_Radio(chirp_common.CloneModeRadio):
     """Kenwood Mobile Family 60 Radios"""
     VENDOR = "Kenwood"
-    _range = [350000000, 500000000]  # don't mind, it will be overited
+    _range = [136000000, 500000000]  # don't mind, it will be overited
     _upper = 32
     VARIANT = ""
     MODEL = ""
@@ -331,16 +360,18 @@ class Kenwood_M60_Radio(chirp_common.CloneModeRadio):
              'it will be implemented in the future.'
              )
         rp.pre_download = _(dedent("""\
-            Follow this instructions to download your info:
+            Follow this instructions to read your radio:
             1 - Turn off your radio
             2 - Connect your interface cable
-            3 - Do the download of your radio data
+            3 - Turn on your radio
+            4 - Do the download of your radio data
             """))
         rp.pre_upload = _(dedent("""\
-            Follow this instructions to download your info:
+            Follow this instructions to write your radio:
             1 - Turn off your radio
             2 - Connect your interface cable
-            3 - Do the upload of your radio data
+            3 - Turn on your radio
+            4 - Do the upload of your radio data
             """))
         return rp
 
@@ -613,8 +644,8 @@ class Kenwood_M60_Radio(chirp_common.CloneModeRadio):
         elif mem.duplex == "-":
             _mem.txfreq = (mem.freq - mem.offset) / 10
         elif mem.duplex == "off":
-            for i in range(0, 4):
-                _mem.txfreq[i].set_raw("\xFF")
+            for byte in _mem.txfreq:
+                byte.set_raw("\xFF")
         else:
             _mem.txfreq = mem.freq / 10
 
@@ -674,7 +705,7 @@ class Kenwood_M60_Radio(chirp_common.CloneModeRadio):
         top = RadioSettings(basic, fkeys)
 
         # Basic
-        val = RadioSettingValueString(0, 35, self.VARIANT)
+        val = RadioSettingValueString(0, 35, self._VARIANT)
         val.set_mutable(False)
         mod = RadioSetting("not.mod", "Radio version", val)
         basic.append(mod)
@@ -784,7 +815,7 @@ class TK760_Radio(Kenwood_M60_Radio):
     TYPE = "M0760"
     VARIANTS = {
         "M0760\x01\x00\x00": (32, 136, 156, "K2"),
-        "M0760\x00\x00\x00": (32, 148, 174, "K")
+        "M0760\x00\x00\x00": (32, 144, 174, "K")   # 148-147 Original
         }
 
 
@@ -795,7 +826,7 @@ class TK762_Radio(Kenwood_M60_Radio):
     TYPE = "M0762"
     VARIANTS = {
         "M0762\x01\x00\x00": (2, 136, 156, "K2"),
-        "M0762\x00\x00\x00": (2, 148, 174, "K")
+        "M0762\x00\x00\x00": (2, 144, 174, "K")   # 148-147 Original
         }
 
 
@@ -806,7 +837,7 @@ class TK768_Radio(Kenwood_M60_Radio):
     TYPE = "M0768"
     VARIANTS = {
         "M0768\x21\x00\x00": (32, 136, 156, "K2"),
-        "M0768\x20\x00\x00": (32, 148, 174, "K")
+        "M0768\x20\x00\x00": (32, 144, 174, "K")   # 148-147 Original
         }
 
 
@@ -816,7 +847,7 @@ class TK860_Radio(Kenwood_M60_Radio):
     MODEL = "TK-860"
     TYPE = "M0860"
     VARIANTS = {
-        "M0860\x05\x00\x00": (32, 406, 430, "F4"),
+        "M0860\x05\x00\x00": (32, 406, 440, "F4"),   # 406-430 Original
         "M0860\x04\x00\x00": (32, 488, 512, "F3"),
         "M0860\x03\x00\x00": (32, 470, 496, "F2"),
         "M0860\x02\x00\x00": (32, 450, 476, "F1")
@@ -829,7 +860,7 @@ class TK862_Radio(Kenwood_M60_Radio):
     MODEL = "TK-862"
     TYPE = "M0862"
     VARIANTS = {
-        "M0862\x05\x00\x00": (2, 406, 430, "F4"),
+        "M0862\x05\x00\x00": (2, 406, 440, "F4"),   # 406-430 Original
         "M0862\x04\x00\x00": (2, 488, 512, "F3"),
         "M0862\x03\x00\x00": (2, 470, 496, "F2"),
         "M0862\x02\x00\x00": (2, 450, 476, "F1")
@@ -842,7 +873,7 @@ class TK868_Radio(Kenwood_M60_Radio):
     MODEL = "TK-868"
     TYPE = "M0868"
     VARIANTS = {
-        "M0868\x25\x00\x00": (32, 406, 430, "F4"),
+        "M0868\x25\x00\x00": (32, 406, 440, "F4"),   # 406-430 Original
         "M0868\x24\x00\x00": (32, 488, 512, "F3"),
         "M0868\x23\x00\x00": (32, 470, 496, "F2"),
         "M0868\x22\x00\x00": (32, 450, 476, "F1")

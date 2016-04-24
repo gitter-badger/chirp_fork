@@ -635,6 +635,8 @@ of file.
         again = gtk.CheckButton(
             _("Don't show instructions for any radio again"))
         again.show()
+        again.connect("toggled", lambda action:
+            self.clonemenu.set_active(not action.get_active()))
         d.vbox.pack_start(again, 0, 0, 0)
         h_button_box = d.vbox.get_children()[2]
         try:
@@ -646,7 +648,7 @@ of file.
             pass
         d.run()
         d.destroy()
-        CONF.set_bool("clone_instructions", again.get_active(), "noconfirm")
+
 
     def do_download(self, port=None, rtype=None):
         d = clone.CloneSettingsDialog(parent=self)
@@ -1356,9 +1358,12 @@ of file.
             devaction = self.menu_ag.get_action(name)
             devaction.set_visible(action.get_active())
 
+    def do_toggle_clone_instructions(self, action):
+        CONF.set_bool("clone_instructions", not action.get_active(), "noconfirm")
+
     def do_change_language(self):
         langs = ["Auto", "English", "Polish", "Italian", "Dutch", "German",
-                 "Hungarian", "Russian", "Portuguese (BR)", "French"]
+                 "Hungarian", "Russian", "Portuguese (BR)", "French", "Spanish"]
         d = inputdialog.ChoiceDialog(langs, parent=self,
                                      title="Choose Language")
         d.label.set_text(_("Choose a language or Auto to use the "
@@ -1447,6 +1452,8 @@ of file.
             self.do_toggle_no_smart_tmode(_action)
         elif action == "developer":
             self.do_toggle_developer(_action)
+        elif action == "clone_instructions":
+            self.do_toggle_clone_instructions(_action)
         elif action in ["cut", "copy", "paste", "delete",
                         "move_up", "move_dn", "exchange", "all",
                         "devshowraw", "devdiffraw", "properties"]:
@@ -1531,6 +1538,7 @@ of file.
       <menuitem action="gethelp"/>
       <separator/>
       <menuitem action="report"/>
+      <menuitem action="clone_instructions"/>
       <menuitem action="developer"/>
       <separator/>
       <menuitem action="about"/>
@@ -1608,14 +1616,17 @@ of file.
         re = not conf.get_bool("no_report")
         hu = conf.get_bool("hide_unused", "memedit", default=True)
         dv = conf.get_bool("developer", "state")
+        ci = not conf.get_bool("clone_instructions", "noconfirm")
         st = not conf.get_bool("no_smart_tmode", "memedit")
 
-        toggles = [('report', None, _("Report statistics"),
+        toggles = [('report', None, _("Report Statistics"),
                     None, None, self.mh, re),
                    ('hide_unused', None, _("Hide Unused Fields"),
                     None, None, self.mh, hu),
                    ('no_smart_tmode', None, _("Smart Tone Modes"),
                     None, None, self.mh, st),
+                   ('clone_instructions', None, _("Show Instructions"),
+                    None, None, self.mh, ci),
                    ('developer', None, _("Enable Developer Functions"),
                     None, None, self.mh, dv),
                    ]
@@ -1630,7 +1641,7 @@ of file.
 
         self.add_accel_group(self.menu_uim.get_accel_group())
 
-        self.recentmenu = self.menu_uim.get_widget("/MenuBar/file/recent")
+        self.clonemenu = self.menu_uim.get_widget("/MenuBar/help/clone_instructions")
 
         # Initialize
         self.do_toggle_developer(self.menu_ag.get_action("developer"))
