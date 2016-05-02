@@ -1676,3 +1676,137 @@ class DstarMemoryEditor(MemoryEditor):
 
 class ID800MemoryEditor(DstarMemoryEditor):
     pass
+
+class DMRMemoryEditor(MemoryEditor):
+    def _get_cols_to_hide(self, iter):
+        hide = MemoryEditor._get_cols_to_hide(self, iter)
+
+        mode, = self.store.get(iter, self.col(_("Mode")))
+        if mode != "DMR":
+            hide += [
+                    self.col("TIMESLOT"),
+                     self.col("COLORCODE"),
+                     ]
+
+        return hide
+
+    def render(self, null, rend, model, iter, colnum):
+        MemoryEditor.render(self, null, rend, model, iter, colnum)
+
+        vals = model.get(iter, *tuple(range(0, len(self.cols))))
+        val = vals[colnum]
+
+        def _enabled(sensitive):
+            rend.set_property("sensitive", sensitive)
+
+        def d_unless_mode(mode):
+            _enabled(vals[self.col(_("Mode"))] == mode)
+
+        _dmr_columns = [
+                _("TIMESLOT"), 
+                _("COLORCODE")
+                ]
+        dmr_columns = [self.col(x) for x in _dmr_columns]
+        if colnum in dmr_columns:
+            d_unless_mode("DMR")
+
+    def _get_memory(self, iter):
+        vals = self.store.get(iter, *range(0, len(self.cols)))
+        if vals[self.col(_("Mode"))] != "DMR":
+            return MemoryEditor._get_memory(self, iter)
+
+        mem = chirp_common.DMRMemory()
+
+        MemoryEditor._set_mem_vals(self, mem, vals, iter)
+
+        mem.timeslot = vals[self.col(_("TIMESLOT"))]
+        mem.colorcode = vals[self.col(_("COLORCODE"))]
+
+        return mem
+
+    def __init__(self, rthread):
+        print("HEY IT'S A DMR MEMORY! :DDD")
+        self.cols = list(self.cols)
+        new_cols = [
+                ("TIMESLOT", TYPE_INT, gtk.CellRendererText),
+                ("COLORCODE", TYPE_INT, gtk.CellRendererText),
+                ]
+        for col in new_cols:
+            index = self.cols.index(("_filled", TYPE_BOOLEAN, None))
+            self.cols.insert(index, col)
+
+        self.choices = dict(self.choices)
+        self.defaults = dict(self.defaults)
+
+
+        self.defaults["TIMESLOT"] = 0
+        self.defaults["COLORCODE"] = 0
+
+        MemoryEditor.__init__(self, rthread)
+
+        # def ucall_cb(calls):
+            # self.defaults["URCALL"] = calls[0]
+            # for call in calls:
+                # self.choices["URCALL"].append((call, call))
+
+        # if self._features.requires_call_lists:
+            # ujob = common.RadioJob(ucall_cb, "get_urcall_list")
+            # ujob.set_desc(_("Downloading URCALL list"))
+            # rthread.submit(ujob)
+
+        # def rcall_cb(calls):
+            # self.defaults["RPT1CALL"] = calls[0]
+            # self.defaults["RPT2CALL"] = calls[0]
+            # for call in calls:
+                # self.choices["RPT1CALL"].append((call, call))
+                # self.choices["RPT2CALL"].append((call, call))
+
+        # if self._features.requires_call_lists:
+            # rjob = common.RadioJob(rcall_cb, "get_repeater_call_list")
+            # rjob.set_desc(_("Downloading RPTCALL list"))
+            # rthread.submit(rjob)
+
+        _dmr_columns = ["TIMESLOT", "COLORCODE" ]
+
+        # if not self._features.requires_call_lists:
+            # for i in _dv_columns:
+                # if i not in self.choices:
+                    # continue
+                # column = self.view.get_column(self.col(i))
+                # rend = column.get_cell_renderers()[0]
+                # rend.set_property("has-entry", True)
+
+        for i in _dmr_columns:
+            print("for i in _dmr_columns", i)
+            col = self.view.get_column(self.col(i))
+            rend = col.get_cell_renderers()[0]
+            rend.set_property("family", "Monospace")
+
+    # def set_urcall_list(self, urcalls):
+        # store = self.choices["URCALL"]
+
+        # store.clear()
+        # for call in urcalls:
+            # store.append((call, call))
+
+    # def set_repeater_list(self, repeaters):
+        # for listname in ["RPT1CALL", "RPT2CALL"]:
+            # store = self.choices[listname]
+
+            # store.clear()
+            # for call in repeaters:
+                # store.append((call, call))
+
+    def _set_memory(self, iter, memory):
+        MemoryEditor._set_memory(self, iter, memory)
+
+        if isinstance(memory, chirp_common.DMRMemory):
+            self.store.set(iter,
+                           self.col("TIMESLOT"), memory.timeslot,
+                           self.col("COLORCODE"), memory.colorcode,
+                           )
+        else:
+            self.store.set(iter,
+                           self.col("TIMESLOT"), 0,
+                           self.col("COLORCODE"), 0,
+                           )

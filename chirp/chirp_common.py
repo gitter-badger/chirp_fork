@@ -68,7 +68,7 @@ CROSS_MODES = [
 ]
 
 MODES = ["WFM", "FM", "NFM", "AM", "NAM", "DV", "USB", "LSB", "CW", "RTTY",
-         "DIG", "PKT", "NCW", "NCWR", "CWR", "P25", "Auto", "RTTYR",
+         "DIG", "PKT", "NCW", "NCWR", "CWR", "P25", "Auto", "RTTYR", "DMR",
          "FSK", "FSKR"]
 
 TONE_MODES = [
@@ -414,6 +414,8 @@ class Memory:
 
         if vals[10] == "DV":
             mem = DVMemory()
+        elif vals[10] == "DMR":
+            mem = DMRMemory()
         else:
             mem = Memory()
 
@@ -500,6 +502,52 @@ class Memory:
 
         return True
 
+
+class DMRMemory(Memory):
+    """A Memory with DMR attributes"""
+    timeslot = 1 # or 2, known as col TIMESLOT
+    colorcode = 0 # up to 15, known as col COLORCODE
+
+    def __str__(self):
+        string = Memory.__str__(self)
+        string += " <%i,%i>" % (self.timeslot,
+                                   self.colorcode
+                                   )
+
+        return string
+
+    def to_csv(self):
+        return [
+            "%i" % self.number,
+            "%s" % self.name,
+            format_freq(self.freq),
+            "%s" % self.duplex,
+            format_freq(self.offset),
+            "%s" % self.tmode,
+            "%.1f" % self.rtone,
+            "%.1f" % self.ctone,
+            "%03i" % self.dtcs,
+            "%s" % self.dtcs_polarity,
+            "%s" % self.mode,
+            "%.2f" % self.tuning_step,
+            "%s" % self.skip,
+            "%s" % self.comment,
+            "%i" % self.timeslot,
+            "%i" % self.colorcode,
+            ]
+
+    def really_from_csv(self, vals):
+        Memory.really_from_csv(self, vals)
+
+        try:
+            self.timeslot = int(vals[15].strip())
+        except Exception:
+            self.timeslot = 0
+
+        try:
+            self.colorcode = int(vals[16].strip())
+        except Exception:
+            self.colorcode = 0
 
 class DVMemory(Memory):
     """A Memory with D-STAR attributes"""
@@ -1190,6 +1238,8 @@ class NetworkSourceRadio(Radio):
         """Fetch the source data from the network"""
         pass
 
+class DMRSupport:
+    pass
 
 class IcomDstarSupport:
     """Base interface for radios supporting Icom's D-STAR technology"""
