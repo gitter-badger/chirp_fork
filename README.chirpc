@@ -102,3 +102,5 @@ You can copy a memory channel:
 
 Note: The contents of <destination_channel> will be overwritten with
 the contents from <source_channel>
+
+Join the chat at https://gitter.im/mach327/chirp_fork
